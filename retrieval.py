@@ -1,3 +1,4 @@
+
 """Retrieval module for selecting relevant factual passages."""
 
 import json
@@ -117,7 +118,7 @@ def build_index() -> None:
         )
     print(f"Successfully indexed {len(docs)} items into ChromaDB.")
 
-def retrieve_passages(query: str, top_k: int = 3, distance_threshold: float = 0.95) -> List[Dict[str, Any]]:
+def retrieve_passages(query: str, top_k: int = 3, distance_threshold: float = 1.5) -> List[Dict[str, Any]]:
     """Retrieve candidate passages for a given query."""
     
     norm_query = normalize_query(query)
