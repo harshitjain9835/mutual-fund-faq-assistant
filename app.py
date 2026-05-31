@@ -136,14 +136,14 @@ col1, col2, col3 = st.columns(3)
 preset_prompt = None
 
 with col1:
-    if st.button("What is the expense ratio and exit load of the Axis Bluechip Fund?"):
-        preset_prompt = "What is the expense ratio and exit load of the Axis Bluechip Fund?"
+    if st.button("What is the expense ratio and exit load of HDFC Mid Cap?"):
+        preset_prompt = "What is the expense ratio and exit load of HDFC Mid Cap?"
 with col2:
-    if st.button("What is the lock-in period for ELSS funds?"):
-        preset_prompt = "What is the lock-in period for ELSS funds?"
+    if st.button("Who is the fund manager for HDFC Defence Fund?"):
+        preset_prompt = "Who is the fund manager for HDFC Defence Fund?"
 with col3:
-    if st.button("How can I download my capital gains statement?"):
-        preset_prompt = "How can I download my capital gains statement?"
+    if st.button("What is the benchmark index for HDFC Small Cap?"):
+        preset_prompt = "What is the benchmark index for HDFC Small Cap?"
 
 st.markdown("<br>", unsafe_allow_html=True)
 
