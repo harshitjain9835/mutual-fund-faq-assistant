@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*~
+.Python
+venv/
+env/
+.venv/
+
+# Secrets
+.env
+
+# Database & Local Data
+data/chroma_db/
