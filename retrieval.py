@@ -65,8 +65,7 @@ def build_index() -> None:
     """Read the corpus, generate BGE embeddings, and load into ChromaDB."""
     corpus_file = get_corpus_file()
     if not corpus_file.exists():
-        print(f"Error: Corpus file not found at {corpus_file}")
-        return
+        raise FileNotFoundError(f"Corpus file not found at {corpus_file}. Please run 'python src/ingest.py' to fetch the data.")
         
     with open(corpus_file, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -113,8 +112,7 @@ def build_index() -> None:
                 chunk_id += 1
                 
     if not docs:
-        print("No documents found in corpus to index.")
-        return
+        raise ValueError("No documents found in corpus to index. Check your ingestion data.")
         
     print(f"Generating embeddings for {len(docs)} chunks using {MODEL_NAME}...")
     embeddings = embedder.encode(docs, normalize_embeddings=True).tolist()
@@ -135,9 +133,12 @@ def retrieve_passages(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
     
     if collection.count() == 0:
         print("Vector database is empty. Attempting to build index automatically...")
-        build_index()
+        try:
+            build_index()
+        except Exception as e:
+            return [{"error": "unavailable", "message": f"Auto-indexing failed: {str(e)}"}]
         if collection.count() == 0:
-            return [{"error": "unavailable", "message": "The vector database is empty and could not be indexed automatically. Please ensure you have ingested the data first."}]
+            return [{"error": "unavailable", "message": "The vector database is empty and could not be indexed automatically. Please ensure you have ingested the data first by running 'python src/ingest.py'."}]
 
     norm_query = normalize_query(query)
     
