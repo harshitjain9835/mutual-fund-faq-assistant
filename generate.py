@@ -10,7 +10,7 @@ import streamlit as st
 load_dotenv()
 
 # Initialize the OpenAI client pointing to the Groq API
-api_key = os.environ.get("GROQ_API_KEY")
+api_key = os.environ.get("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")
 
 # Fallback to Streamlit secrets if not found in environment variables
 if not api_key:
