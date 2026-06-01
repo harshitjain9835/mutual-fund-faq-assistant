@@ -71,7 +71,7 @@ def build_index() -> None:
     if isinstance(data, list):
         sources = data
     else:
-        sources = data.get("sources", [])
+        sources = data.get("sources", data.get("documents", data.get("data", [])))
     docs, metadatas, ids = [], [], []
     
     chunk_id = 0
@@ -124,7 +124,10 @@ def retrieve_passages(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
     """Retrieve candidate passages for a given query."""
     
     if collection.count() == 0:
-        return [{"error": "unavailable", "message": "The vector database is currently empty. Please run `python src/retrieval.py index` to ingest the documents."}]
+        print("Vector database is empty. Attempting to build index automatically...")
+        build_index()
+        if collection.count() == 0:
+            return [{"error": "unavailable", "message": "The vector database is empty and could not be indexed automatically. Please ensure you have ingested the data first."}]
 
     norm_query = normalize_query(query)
     
