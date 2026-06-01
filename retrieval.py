@@ -68,7 +68,10 @@ def build_index() -> None:
     with open(CORPUS_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
         
-    sources = data.get("sources", [])
+    if isinstance(data, list):
+        sources = data
+    else:
+        sources = data.get("sources", [])
     docs, metadatas, ids = [], [], []
     
     chunk_id = 0
@@ -120,6 +123,9 @@ def build_index() -> None:
 def retrieve_passages(query: str, top_k: int = 3, distance_threshold: float = 1.5) -> List[Dict[str, Any]]:
     """Retrieve candidate passages for a given query."""
     
+    if collection.count() == 0:
+        return [{"error": "unavailable", "message": "The vector database is currently empty. Please run `python src/retrieval.py index` to ingest the documents."}]
+
     norm_query = normalize_query(query)
     
     # Refuse advisory/non-factual questions before querying the database
