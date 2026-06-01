@@ -67,11 +67,15 @@ def build_index() -> None:
     if not corpus_file.exists():
         print(f"Corpus file not found at {corpus_file}. Attempting auto-ingestion...")
         try:
-            # Use a relative import, which is robust when running as part of a package (e.g., via app.py)
-            from . import ingest
-        except ImportError:
-            # Fallback to a direct import for running as a standalone script
             import ingest
+        except ImportError:
+            import importlib.util
+            ingest_path = Path(__file__).resolve().parent / "ingest.py"
+            spec = importlib.util.spec_from_file_location("ingest", str(ingest_path))
+            ingest = importlib.util.module_from_spec(spec)
+            sys.modules["ingest"] = ingest
+            spec.loader.exec_module(ingest)
+            
         ingest.ingest_sources(ingest.SOURCE_URLS)
             
         if not corpus_file.exists():
