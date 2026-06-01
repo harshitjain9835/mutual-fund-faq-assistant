@@ -10,12 +10,12 @@ import streamlit as st
 load_dotenv()
 
 # Initialize the OpenAI client pointing to the Groq API
-api_key = os.environ.get("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")
+api_key = os.environ.get("GROQ_API_KEY")
 
 # Fallback to Streamlit secrets if not found in environment variables
 if not api_key:
     try:
-        api_key = st.secrets.get("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")
+        api_key = st.secrets.get("GROQ_API_KEY")
     except Exception:
         pass
 
@@ -67,8 +67,7 @@ def generate_answer(query: str, passages: List[Dict[str, Any]]) -> str:
     return response
 
 if __name__ == "__main__":
-    from unittest.mock import MagicMock
-    print("Running LLM Generation Tests (Mocked API Calls)...\n")
+    print("Running LLM Generation Tests (Live API Calls)...\n")
 
     # Test 1: Standard Factual Query
     test_query_1 = "What is the expense ratio?"
@@ -81,12 +80,6 @@ if __name__ == "__main__":
             }
         }
     ]
-
-    # Mock the global Groq client to prevent real API calls and token usage during tests
-    client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.choices[0].message.content = "The total expense ratio of the HDFC Mid Cap fund is 1.05% p.a."
-    client.chat.completions.create.return_value = mock_response
 
     print(f"Test 1 - Query: {test_query_1}")
     print("-" * 40)
