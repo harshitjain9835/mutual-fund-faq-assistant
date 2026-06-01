@@ -30,13 +30,19 @@ def generate_answer(query: str, passages: List[Dict[str, Any]]) -> str:
     if not passages or "error" in passages[0]:
         return passages[0].get("message", "Information not found.")
         
+    # Combine all retrieved passages for broader context (e.g. if the query asks for multiple facts)
+    combined_text = "\n---\n".join([p.get("text", "") for p in passages])
+        
+    # Use the best passage's metadata for the primary citation
     best_passage = passages[0]
-    text = best_passage.get("text", "")
     url = best_passage.get("metadata", {}).get("url", "#")
     fetched_at = best_passage.get("metadata", {}).get("fetched_at", "Unknown date")[:10]
     
+    # Extract fund name from URL to give the LLM better grounding context
+    fund_name = url.split('/')[-1].replace('-', ' ').title() if url != "#" else "The Fund"
+    
     if not client:
-        return f"**[Error: GROQ_API_KEY not set. Placeholder Answer]**\n\n{text}\n\n**Source:** {url}\n\n*Last updated from sources: {fetched_at}*"
+        return f"**[Error: GROQ_API_KEY not set. Placeholder Answer]**\n\n{combined_text}\n\n**Source:** {url}\n\n*Last updated from sources: {fetched_at}*"
 
     system_prompt = (
         "You are a strict, facts-only mutual fund assistant. "
@@ -46,7 +52,7 @@ def generate_answer(query: str, passages: List[Dict[str, Any]]) -> str:
         "If the answer cannot be found in the context, state that the information is unavailable."
     )
 
-    user_prompt = f"Context:\n{text}\n\nQuery: {query}"
+    user_prompt = f"Context Information:\nFund Name: {fund_name}\nPassages:\n{combined_text}\n\nQuery: {query}"
 
     try:
         llm_response = client.chat.completions.create(
