@@ -120,7 +120,7 @@ def build_index() -> None:
         )
     print(f"Successfully indexed {len(docs)} items into ChromaDB.")
 
-def retrieve_passages(query: str, top_k: int = 3, distance_threshold: float = 1.5) -> List[Dict[str, Any]]:
+def retrieve_passages(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
     """Retrieve candidate passages for a given query."""
     
     if collection.count() == 0:
@@ -149,10 +149,6 @@ def retrieve_passages(query: str, top_k: int = 3, distance_threshold: float = 1.
         for i in range(len(results["documents"][0])):
             dist = results["distances"][0][i] if results.get("distances") else None
             
-            # Penalize generic/unrelated text by enforcing a distance threshold
-            if dist is not None and dist > distance_threshold:
-                continue
-                
             passages.append({
                 "text": results["documents"][0][i],
                 "metadata": results["metadatas"][0][i] if results.get("metadatas") else {},
