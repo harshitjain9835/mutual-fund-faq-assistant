@@ -1,4 +1,3 @@
-
 """Retrieval module for selecting relevant factual passages."""
 
 import json
@@ -9,7 +8,7 @@ from pathlib import Path
 import chromadb
 from sentence_transformers import SentenceTransformer
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 CHROMA_DB_DIR = DATA_DIR / "chroma_db"
 
