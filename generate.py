@@ -50,7 +50,7 @@ def generate_answer(query: str, passages: List[Dict[str, Any]]) -> str:
 
     try:
         llm_response = client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
