@@ -65,7 +65,16 @@ def build_index() -> None:
     """Read the corpus, generate BGE embeddings, and load into ChromaDB."""
     corpus_file = get_corpus_file()
     if not corpus_file.exists():
-        raise FileNotFoundError(f"Corpus file not found at {corpus_file}. Please run 'python src/ingest.py' to fetch the data.")
+        print(f"Corpus file not found at {corpus_file}. Attempting auto-ingestion...")
+        try:
+            import ingest
+            ingest.ingest_sources(ingest.SOURCE_URLS)
+        except ImportError:
+            from src import ingest
+            ingest.ingest_sources(ingest.SOURCE_URLS)
+            
+        if not corpus_file.exists():
+            raise FileNotFoundError(f"Corpus file not found at {corpus_file} after auto-ingestion. Please run 'python src/ingest.py' manually.")
         
     with open(corpus_file, "r", encoding="utf-8") as f:
         data = json.load(f)
