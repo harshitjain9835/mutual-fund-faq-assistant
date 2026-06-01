@@ -15,7 +15,7 @@ api_key = os.environ.get("GROQ_API_KEY")
 # Fallback to Streamlit secrets if not found in environment variables
 if not api_key:
     try:
-        api_key = st.secrets.get("GROQ_API_KEY")
+        api_key = st.secrets.get("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")
     except Exception:
         pass
 
