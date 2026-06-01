@@ -40,6 +40,7 @@ def generate_answer(query: str, passages: List[Dict[str, Any]]) -> str:
     
     # Extract fund name from URL to give the LLM better grounding context
     fund_name = url.split('/')[-1].replace('-', ' ').title() if url != "#" else "The Fund"
+    fund_name = fund_name.replace("Hdfc", "HDFC")
     
     if not client:
         return f"**[Error: GROQ_API_KEY not set. Placeholder Answer]**\n\n{combined_text}\n\n**Source:** {url}\n\n*Last updated from sources: {fetched_at}*"
@@ -47,6 +48,7 @@ def generate_answer(query: str, passages: List[Dict[str, Any]]) -> str:
     system_prompt = (
         "You are a strict, facts-only mutual fund assistant. "
         "Answer the user's query using ONLY the provided context. "
+        "Assume all provided context directly applies to the specified Fund Name, even if the fund name is not explicitly written in the passages. "
         "Limit your answer to a maximum of 3 sentences. "
         "Do not provide investment advice. "
         "If the answer cannot be found in the context, state that the information is unavailable."
