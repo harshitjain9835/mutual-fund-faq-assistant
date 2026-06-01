@@ -136,8 +136,8 @@ col1, col2, col3 = st.columns(3)
 preset_prompt = None
 
 with col1:
-    if st.button("What is the expense ratio and exit load of HDFC Mid Cap?"):
-        preset_prompt = "What is the expense ratio and exit load of HDFC Mid Cap?"
+    if st.button("What is the exit load of HDFC gold ETF?"):
+        preset_prompt = "What is the exit load of HDFC gold ETF?"
 with col2:
     if st.button("Who is the fund manager for HDFC Defence Fund?"):
         preset_prompt = "Who is the fund manager for HDFC Defence Fund?"
