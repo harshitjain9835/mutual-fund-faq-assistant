@@ -67,9 +67,20 @@ def build_index() -> None:
     if not corpus_file.exists():
         print(f"Corpus file not found at {corpus_file}. Attempting auto-ingestion...")
         import importlib.util
-        ingest_path = Path(__file__).resolve().parent / "ingest.py"
-        if not ingest_path.exists():
-            raise FileNotFoundError(f"Could not locate ingest.py at {ingest_path}")
+        
+        current_dir = Path(__file__).resolve().parent
+        search_paths = [
+            current_dir / "ingest.py",
+            current_dir / "src" / "ingest.py",
+            current_dir.parent / "src" / "ingest.py",
+            current_dir.parent / "ingest.py",
+            Path.cwd() / "src" / "ingest.py",
+            Path.cwd() / "ingest.py"
+        ]
+        
+        ingest_path = next((p for p in search_paths if p.exists()), None)
+        if not ingest_path:
+            raise FileNotFoundError("Could not locate ingest.py to run auto-ingestion. Ensure the file exists in your repository.")
             
         try:
             spec = importlib.util.spec_from_file_location("local_ingest", str(ingest_path))
