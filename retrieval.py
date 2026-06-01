@@ -12,11 +12,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 CHROMA_DB_DIR = DATA_DIR / "chroma_db"
 
-# Support both possible output names from Phase 2
-CORPUS_FILE = DATA_DIR / "corpus.json"
-if not CORPUS_FILE.exists():
-    CORPUS_FILE = DATA_DIR / "ingested_sources.json"
-
 # Load the BAAI BGE-Small model (Phase 3 Requirement)
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 embedder = SentenceTransformer(MODEL_NAME)
@@ -26,6 +21,13 @@ client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
 
 # Use get_or_create to connect to the existing index or create a new one
 collection = client.get_or_create_collection(name="mutual_fund_facts")
+
+def get_corpus_file() -> Path:
+    """Dynamically determine which corpus file is available."""
+    corpus_json = DATA_DIR / "corpus.json"
+    if corpus_json.exists():
+        return corpus_json
+    return DATA_DIR / "ingested_sources.json"
 
 def normalize_query(query: str) -> str:
     """Trim whitespace, normalize casing, remove irrelevant punctuation."""
@@ -61,11 +63,12 @@ def chunk_text(text: str, words_per_chunk: int = 250, overlap: int = 50) -> List
 
 def build_index() -> None:
     """Read the corpus, generate BGE embeddings, and load into ChromaDB."""
-    if not CORPUS_FILE.exists():
-        print(f"Error: Corpus file not found at {CORPUS_FILE}")
+    corpus_file = get_corpus_file()
+    if not corpus_file.exists():
+        print(f"Error: Corpus file not found at {corpus_file}")
         return
         
-    with open(CORPUS_FILE, "r", encoding="utf-8") as f:
+    with open(corpus_file, "r", encoding="utf-8") as f:
         data = json.load(f)
         
     if isinstance(data, list):
@@ -89,12 +92,19 @@ def build_index() -> None:
                 chunk_id += 1
                 
         # Index the general text chunks
-        passages = source.get("passages")
+        raw_passages = source.get("passages")
         # Fallback to chunking raw text if running from ingested_sources.json
-        if not passages and "text" in source:
-            passages = chunk_text(source.get("text", ""))
+        if not raw_passages and "text" in source:
+            raw_passages = [source.get("text", "")]
             
-        for p in (passages or []):
+        final_passages = []
+        for p in (raw_passages or []):
+            if len(p.split()) > 300:
+                final_passages.extend(chunk_text(p))
+            else:
+                final_passages.append(p)
+                
+        for p in final_passages:
             text = p.strip()
             if text:
                 docs.append(text)
