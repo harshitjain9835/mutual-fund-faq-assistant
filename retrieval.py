@@ -68,13 +68,33 @@ def build_index() -> None:
         print(f"Corpus file not found at {corpus_file}. Attempting auto-ingestion...")
         try:
             import ingest
-        except ImportError:
-            import importlib.util
-            ingest_path = Path(__file__).resolve().parent / "ingest.py"
-            spec = importlib.util.spec_from_file_location("ingest", str(ingest_path))
-            ingest = importlib.util.module_from_spec(spec)
-            sys.modules["ingest"] = ingest
-            spec.loader.exec_module(ingest)
+        except ImportError as e:
+            # If the error is due to a missing third-party package inside ingest.py, surface it directly
+            if getattr(e, 'name', None) not in ('ingest', 'src.ingest', 'src', None):
+                raise RuntimeError(f"Missing dependency: '{e.name}'. Please ensure packages like 'beautifulsoup4', 'requests', and 'PyPDF2' are listed in your requirements.txt.")
+                
+            try:
+                from src import ingest
+            except ImportError:
+                import importlib.util
+                current_dir = Path(__file__).resolve().parent
+                
+                # Dynamically search for ingest.py across common project deployment structures
+                search_paths = [
+                    current_dir / "ingest.py",
+                    current_dir / "src" / "ingest.py",
+                    current_dir.parent / "ingest.py",
+                    current_dir.parent / "src" / "ingest.py"
+                ]
+                
+                ingest_path = next((p for p in search_paths if p.exists()), None)
+                if not ingest_path:
+                    raise FileNotFoundError("Could not locate ingest.py to run auto-ingestion. Ensure the file exists in your repository.")
+                    
+                spec = importlib.util.spec_from_file_location("ingest", str(ingest_path))
+                ingest = importlib.util.module_from_spec(spec)
+                sys.modules["ingest"] = ingest
+                spec.loader.exec_module(ingest)
             
         ingest.ingest_sources(ingest.SOURCE_URLS)
             
