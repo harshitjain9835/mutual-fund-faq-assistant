@@ -52,6 +52,10 @@ def refresh_data_pipeline():
         logging.error(f"Data refresh pipeline failed: {str(e)}", exc_info=True)
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--run-once":
+        refresh_data_pipeline()
+        sys.exit(0)
+        
     ist_tz = pytz.timezone('Asia/Kolkata')
     scheduler = BlockingScheduler(timezone=ist_tz)
     
