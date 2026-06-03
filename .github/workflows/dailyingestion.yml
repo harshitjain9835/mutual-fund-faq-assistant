@@ -21,9 +21,9 @@ jobs:
           
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          # Automatically clean hidden Windows encoding issues (null bytes & carriage returns)
-          tr -d '\000\r' < requirements.txt > clean_requirements.txt
+          python -m pip install --upgrade pip setuptools wheel
+          # Use Python to reliably clean hidden encoding issues (UTF-16 Null bytes, BOMs, Carriage Returns)
+          python -c "raw = open('requirements.txt', 'rb').read(); text = raw.decode('utf-16' if b'\x00' in raw else 'utf-8-sig', errors='ignore').replace('\r', ''); open('clean_requirements.txt', 'w', encoding='utf-8').write(text)"
           echo "Sanitized requirements text:"
           cat clean_requirements.txt
           pip install -r clean_requirements.txt
