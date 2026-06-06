@@ -30,7 +30,7 @@ jobs:
           
       - name: Run Data Refresh Pipeline
         env:
-          GROQ_API_KEY: "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"
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           python src/scheduler.py --run-once
           
