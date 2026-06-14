@@ -1,215 +1,62 @@
-"""Retrieval module for selecting relevant factual passages."""
+"""Automated Data Refresh Scheduler for the Mutual Fund FAQ Assistant."""
 
-import json
-import re
 import sys
-from typing import Any, Dict, List
+import logging
 from pathlib import Path
-import chromadb
-from sentence_transformers import SentenceTransformer
+import pytz
+from apscheduler.schedulers.blocking import BlockingScheduler
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-CHROMA_DB_DIR = DATA_DIR / "chroma_db"
+# Ensure the src directory is in the system path to allow imports
+current_dir = Path(__file__).resolve().parent
+if str(current_dir) not in sys.path:
+    sys.path.insert(0, str(current_dir))
 
-# Load the BAAI BGE-Small model (Phase 3 Requirement)
-MODEL_NAME = "BAAI/bge-small-en-v1.5"
-embedder = SentenceTransformer(MODEL_NAME)
+import ingest
+import retrieval
 
-# Initialize a persistent local ChromaDB client
-client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
-
-# Use get_or_create to connect to the existing index or create a new one
-collection = client.get_or_create_collection(name="mutual_fund_facts")
-
-def get_corpus_file() -> Path:
-    """Dynamically determine which corpus file is available."""
-    corpus_json = DATA_DIR / "corpus.json"
-    if corpus_json.exists():
-        return corpus_json
-    return DATA_DIR / "ingested_sources.json"
-
-def normalize_query(query: str) -> str:
-    """Trim whitespace, normalize casing, remove irrelevant punctuation."""
-    q = query.strip().lower()
-    q = re.sub(r'\s+', ' ', q)
-    q = re.sub(r'[^\w\s\.\?\-]', '', q)
-    return q
-
-def is_factual_query(query: str) -> bool:
-    """
-    Detect factual requests vs. advisory/non-factual queries.
-    Returns False if an advisory or comparison intent is detected.
-    """
-    advisory_patterns = [
-        r"should i", r"recommend", r"best fund", r"better", r"compare",
-        r"which one", r"good investment", r"invest in", r"buy or sell",
-        r"my portfolio", r"forecast", r"prediction"
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("scheduler.log"),
+        logging.StreamHandler()
     ]
-    for pattern in advisory_patterns:
-        if re.search(pattern, query):
-            return False
-    return True
+)
 
-def chunk_text(text: str, words_per_chunk: int = 250, overlap: int = 50) -> List[str]:
-    """Split raw text into overlapping chunks to fit model context windows."""
-    words = text.split()
-    chunks = []
-    for i in range(0, len(words), max(1, words_per_chunk - overlap)):
-        chunk = " ".join(words[i:i + words_per_chunk])
-        if chunk.strip():
-            chunks.append(chunk)
-    return chunks
-
-def build_index() -> None:
-    """Read the corpus, generate BGE embeddings, and load into ChromaDB."""
-    corpus_file = get_corpus_file()
-    if not corpus_file.exists():
-        print(f"Corpus file not found at {corpus_file}. Attempting auto-ingestion...")
-        import importlib.util
-        
-        current_dir = Path(__file__).resolve().parent
-        search_paths = [
-            current_dir / "ingest.py",
-            current_dir / "src" / "ingest.py",
-            current_dir.parent / "src" / "ingest.py",
-            current_dir.parent / "ingest.py",
-            Path.cwd() / "src" / "ingest.py",
-            Path.cwd() / "ingest.py"
-        ]
-        
-        ingest_path = next((p for p in search_paths if p.exists()), None)
-        if not ingest_path:
-            raise FileNotFoundError("Could not locate ingest.py to run auto-ingestion. Ensure the file exists in your repository.")
-            
-        try:
-            spec = importlib.util.spec_from_file_location("local_ingest", str(ingest_path))
-            local_ingest = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(local_ingest)
-            local_ingest.ingest_sources(local_ingest.SOURCE_URLS)
-        except Exception as e:
-            raise RuntimeError(f"Failed to execute auto-ingestion: {str(e)}")
-            
-        if not corpus_file.exists():
-            raise FileNotFoundError(f"Corpus file not found at {corpus_file} after auto-ingestion. Please run 'python src/ingest.py' manually.")
-        
-    with open(corpus_file, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        
-    if isinstance(data, list):
-        sources = data
-    else:
-        sources = data.get("sources", data.get("documents", data.get("data", [])))
-    docs, metadatas, ids = [], [], []
+def refresh_data_pipeline():
+    """Runs the data ingestion and index rebuilding pipeline."""
+    logging.info("Starting automated daily data refresh...")
     
-    chunk_id = 0
-    for source in sources:
-        url = source.get("url", "")
-        fetched_at = source.get("fetched_at") or source.get("retrieved_at", "")
+    try:
+        # Step 1: Ingest latest data
+        logging.info(f"Fetching latest data from {len(ingest.SOURCE_URLS)} sources...")
+        ingest.ingest_sources(ingest.SOURCE_URLS)
+        logging.info("Data ingestion completed successfully.")
         
-        # Index the structured 'facts' to enforce highly accurate top-K results
-        facts = source.get("facts", {})
-        for fact_key, fact_value in facts.items():
-            if fact_value and isinstance(fact_value, str):
-                docs.append(f"{fact_key.replace('_', ' ').title()}: {fact_value}")
-                metadatas.append({"url": url, "fetched_at": fetched_at, "type": "fact"})
-                ids.append(f"fact_{chunk_id}")
-                chunk_id += 1
-                
-        # Index the general text chunks
-        raw_passages = source.get("passages")
-        # Fallback to chunking raw text if running from ingested_sources.json
-        if not raw_passages and "text" in source:
-            raw_passages = [source.get("text", "")]
-            
-        final_passages = []
-        for p in (raw_passages or []):
-            if len(p.split()) > 300:
-                final_passages.extend(chunk_text(p))
-            else:
-                final_passages.append(p)
-                
-        for p in final_passages:
-            text = p.strip()
-            if text:
-                docs.append(text)
-                metadatas.append({"url": url, "fetched_at": fetched_at, "type": "passage"})
-                ids.append(f"passage_{chunk_id}")
-                chunk_id += 1
-                
-    if not docs:
-        raise ValueError("No documents found in corpus to index. Check your ingestion data.")
+        # Step 2: Clear old index and rebuild
+        logging.info("Clearing old vector index and rebuilding...")
+        # Safely delegate the database clearing and rebuilding to the retrieval module
+        retrieval.clear_and_rebuild_index()
+        logging.info("Vector index rebuilt successfully.")
         
-    print(f"Generating embeddings for {len(docs)} chunks using {MODEL_NAME}...")
-    embeddings = embedder.encode(docs, normalize_embeddings=True).tolist()
-    
-    print("Storing vectors in ChromaDB...")
-    batch_size = 150
-    for i in range(0, len(docs), batch_size):
-        collection.upsert(
-            documents=docs[i:i+batch_size],
-            embeddings=embeddings[i:i+batch_size],
-            metadatas=metadatas[i:i+batch_size],
-            ids=ids[i:i+batch_size]
-        )
-    print(f"Successfully indexed {len(docs)} items into ChromaDB.")
-
-def retrieve_passages(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-    """Retrieve candidate passages for a given query."""
-    
-    if collection.count() == 0:
-        print("Vector database is empty. Attempting to build index automatically...")
-        try:
-            build_index()
-        except Exception as e:
-            return [{"error": "unavailable", "message": f"Auto-indexing failed: {str(e)}"}]
-        if collection.count() == 0:
-            return [{"error": "unavailable", "message": "The vector database is empty and could not be indexed automatically. Please ensure you have ingested the data first by running 'python src/ingest.py'."}]
-
-    norm_query = normalize_query(query)
-    
-    # Refuse advisory/non-factual questions before querying the database
-    if not is_factual_query(norm_query):
-        return [{"error": "refusal", "message": "Advisory/non-factual query detected. The assistant only answers factual queries."}]
-
-    # BGE models require an instruction prefix for querying to maximize retrieval accuracy
-    instruction = "Represent this sentence for searching relevant passages: "
-    full_query = instruction + norm_query
-    
-    # normalize_embeddings=True allows Chroma to use optimal Cosine distance comparisons
-    query_embedding = embedder.encode(full_query, normalize_embeddings=True).tolist()
-    
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k
-    )
-    
-    passages = []
-    if results.get("documents") and results["documents"][0]:
-        for i in range(len(results["documents"][0])):
-            dist = results["distances"][0][i] if results.get("distances") else None
-            
-            passages.append({
-                "text": results["documents"][0][i],
-                "metadata": results["metadatas"][0][i] if results.get("metadatas") else {},
-                "distance": dist
-            })
-            
-    # Return an explicit unavailable result if no strong passage is found
-    if not passages:
-        return [{"error": "unavailable", "message": "Information not found in the official sources."}]
-        
-    return passages
+        logging.info("Daily data refresh completed without errors.")
+    except Exception as e:
+        logging.error(f"Data refresh pipeline failed: {str(e)}", exc_info=True)
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "index":
-        build_index()
-    elif len(sys.argv) > 2 and sys.argv[1] == "search":
-        test_query = sys.argv[2]
-        print(f"Searching for: '{test_query}'\n")
-        res = retrieve_passages(test_query)
-        print(json.dumps(res, indent=2))
-    else:
-        print("Usage:")
-        print("  python src/retrieval.py index             (Build the vector database)")
-        print("  python src/retrieval.py search \"<query>\"  (Test the retrieval logic)")
+    if len(sys.argv) > 1 and sys.argv[1] == "--run-once":
+        refresh_data_pipeline()
+        sys.exit(0)
+        
+    ist_tz = pytz.timezone('Asia/Kolkata')
+    scheduler = BlockingScheduler(timezone=ist_tz)
+    
+    # Schedule the job to run every day at 10:00 AM IST
+    scheduler.add_job(refresh_data_pipeline, 'cron', hour=10, minute=0)
+    
+    logging.info("Scheduler started. Waiting for the next run at 10:00 AM IST...")
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Scheduler stopped.")
