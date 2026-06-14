@@ -36,15 +36,8 @@ def refresh_data_pipeline():
         
         # Step 2: Clear old index and rebuild
         logging.info("Clearing old vector index and rebuilding...")
-        try:
-            retrieval.client.delete_collection(name="mutual_fund_facts")
-            logging.info("Old collection deleted.")
-        except Exception as e:
-            logging.warning(f"Could not delete old collection (might not exist): {e}")
-            
-        # Re-initialize collection reference in the retrieval module and build
-        retrieval.collection = retrieval.client.get_or_create_collection(name="mutual_fund_facts")
-        retrieval.build_index()
+        # Safely delegate the database clearing and rebuilding to the retrieval module
+        retrieval.clear_and_rebuild_index()
         logging.info("Vector index rebuilt successfully.")
         
         logging.info("Daily data refresh completed without errors.")
