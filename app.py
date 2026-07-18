@@ -2,22 +2,23 @@ import sys
 from pathlib import Path
 import streamlit as st
 
-# Add the src directory to the Python path to access backend modules
+# Add candidate source roots to sys.path for local/cloud compatibility.
 current_dir = Path(__file__).resolve().parent
+candidate_src_dirs = [
+    current_dir,
+    current_dir / "src",
+    current_dir.parent / "src",
+]
+for src_dir in candidate_src_dirs:
+    if src_dir.is_dir() and str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
 
-# Handle different placements of app.py (root, src/, or streamlit/)
-if (current_dir / "src").is_dir():
-    src_dir = current_dir / "src"
-elif current_dir.name == "src":
-    src_dir = current_dir
-else:
-    src_dir = current_dir.parent / "src"
-
-if str(src_dir) not in sys.path:
-    sys.path.insert(0, str(src_dir))
-
-from retrieval import retrieve_passages
-from generate import generate_answer
+try:
+    from src.retrieval import retrieve_passages
+    from src.generate import generate_answer
+except ModuleNotFoundError:
+    from retrieval import retrieve_passages
+    from generate import generate_answer
 
 # Page Configuration
 st.set_page_config(page_title="Mutual Fund FAQ Assistant", page_icon="📈", layout="centered")
