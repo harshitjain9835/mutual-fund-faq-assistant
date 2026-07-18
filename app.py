@@ -1,5 +1,6 @@
 import sys
 import importlib
+import importlib.util
 from pathlib import Path
 import streamlit as st
 
@@ -14,19 +15,43 @@ for src_dir in candidate_src_dirs:
     if src_dir.is_dir() and str(src_dir) not in sys.path:
         sys.path.insert(0, str(src_dir))
 
-def _import_backend_functions():
-    """Import backend functions without hiding real dependency errors."""
-    try:
-        retrieval_module = importlib.import_module("src.retrieval")
-        generate_module = importlib.import_module("src.generate")
-        return retrieval_module.retrieve_passages, generate_module.generate_answer
-    except ModuleNotFoundError as exc:
-        # Only fallback when the package path itself is missing.
-        if exc.name not in {"src", "src.retrieval", "src.generate"}:
-            raise
+def _load_symbol_from_file(module_name: str, module_path: Path, symbol_name: str):
+    """Load a symbol from an explicit local module path."""
+    spec = importlib.util.spec_from_file_location(module_name, str(module_path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load module spec for {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not hasattr(module, symbol_name):
+        raise AttributeError(f"{module_path} has no attribute '{symbol_name}'")
+    return getattr(module, symbol_name)
 
-    retrieval_module = importlib.import_module("retrieval")
-    generate_module = importlib.import_module("generate")
+
+def _import_backend_functions():
+    """Import backend functions using local files first, then package imports."""
+    retrieval_files = [
+        current_dir / "retrieval.py",
+        current_dir / "src" / "retrieval.py",
+        current_dir.parent / "src" / "retrieval.py",
+    ]
+    generate_files = [
+        current_dir / "generate.py",
+        current_dir / "src" / "generate.py",
+        current_dir.parent / "src" / "generate.py",
+    ]
+
+    for retrieval_path, generate_path in zip(retrieval_files, generate_files):
+        if retrieval_path.exists() and generate_path.exists():
+            retrieve_fn = _load_symbol_from_file("local_retrieval", retrieval_path, "retrieve_passages")
+            generate_fn = _load_symbol_from_file("local_generate", generate_path, "generate_answer")
+            return retrieve_fn, generate_fn
+
+    retrieval_module = importlib.import_module("src.retrieval")
+    generate_module = importlib.import_module("src.generate")
+    if not hasattr(retrieval_module, "retrieve_passages"):
+        raise AttributeError("Module 'src.retrieval' does not define 'retrieve_passages'.")
+    if not hasattr(generate_module, "generate_answer"):
+        raise AttributeError("Module 'src.generate' does not define 'generate_answer'.")
     return retrieval_module.retrieve_passages, generate_module.generate_answer
 
 
