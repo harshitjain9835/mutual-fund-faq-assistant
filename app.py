@@ -15,20 +15,30 @@ for src_dir in candidate_src_dirs:
     if src_dir.is_dir() and str(src_dir) not in sys.path:
         sys.path.insert(0, str(src_dir))
 
-def _load_symbol_from_file(module_name: str, module_path: Path, symbol_name: str):
-    """Load a symbol from an explicit local module path."""
+def _load_module_from_file(module_name: str, module_path: Path):
+    """Load a module object from an explicit local module path."""
     spec = importlib.util.spec_from_file_location(module_name, str(module_path))
     if spec is None or spec.loader is None:
         raise ImportError(f"Could not load module spec for {module_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    if not hasattr(module, symbol_name):
-        raise AttributeError(f"{module_path} has no attribute '{symbol_name}'")
-    return getattr(module, symbol_name)
+    return module
+
+
+def _first_available_symbol(module, candidates: list[str]):
+    """Return the first callable symbol found in a module from the given candidate names."""
+    for symbol_name in candidates:
+        value = getattr(module, symbol_name, None)
+        if callable(value):
+            return value
+    return None
 
 
 def _import_backend_functions():
     """Import backend functions using local files first, then package imports."""
+    retrieve_candidates = ["retrieve_passages", "retrieve", "search_passages"]
+    generate_candidates = ["generate_answer", "generate", "answer_question"]
+
     retrieval_files = [
         current_dir / "retrieval.py",
         current_dir / "src" / "retrieval.py",
@@ -42,17 +52,51 @@ def _import_backend_functions():
 
     for retrieval_path, generate_path in zip(retrieval_files, generate_files):
         if retrieval_path.exists() and generate_path.exists():
-            retrieve_fn = _load_symbol_from_file("local_retrieval", retrieval_path, "retrieve_passages")
-            generate_fn = _load_symbol_from_file("local_generate", generate_path, "generate_answer")
-            return retrieve_fn, generate_fn
+            try:
+                retrieval_module = _load_module_from_file("local_retrieval", retrieval_path)
+                generate_module = _load_module_from_file("local_generate", generate_path)
+                retrieve_fn = _first_available_symbol(retrieval_module, retrieve_candidates)
+                generate_fn = _first_available_symbol(generate_module, generate_candidates)
+                if retrieve_fn and generate_fn:
+                    return retrieve_fn, generate_fn
+            except Exception:
+                # Try additional import routes below for cloud/local layout differences.
+                pass
 
-    retrieval_module = importlib.import_module("src.retrieval")
-    generate_module = importlib.import_module("src.generate")
-    if not hasattr(retrieval_module, "retrieve_passages"):
-        raise AttributeError("Module 'src.retrieval' does not define 'retrieve_passages'.")
-    if not hasattr(generate_module, "generate_answer"):
-        raise AttributeError("Module 'src.generate' does not define 'generate_answer'.")
-    return retrieval_module.retrieve_passages, generate_module.generate_answer
+    retrieval_module = None
+    generate_module = None
+
+    for module_name in ["src.retrieval", "retrieval"]:
+        try:
+            retrieval_module = importlib.import_module(module_name)
+            break
+        except Exception:
+            continue
+
+    for module_name in ["src.generate", "generate"]:
+        try:
+            generate_module = importlib.import_module(module_name)
+            break
+        except Exception:
+            continue
+
+    retrieve_fn = _first_available_symbol(retrieval_module, retrieve_candidates) if retrieval_module else None
+    generate_fn = _first_available_symbol(generate_module, generate_candidates) if generate_module else None
+
+    if retrieve_fn and generate_fn:
+        return retrieve_fn, generate_fn
+
+    retrieval_available = [
+        name for name in retrieve_candidates if retrieval_module and callable(getattr(retrieval_module, name, None))
+    ]
+    generate_available = [
+        name for name in generate_candidates if generate_module and callable(getattr(generate_module, name, None))
+    ]
+    raise ImportError(
+        "Could not resolve backend functions. "
+        f"retrieval candidates={retrieve_candidates}, found={retrieval_available}; "
+        f"generate candidates={generate_candidates}, found={generate_available}."
+    )
 
 
 retrieve_passages, generate_answer = _import_backend_functions()
