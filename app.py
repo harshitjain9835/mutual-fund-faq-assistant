@@ -47,25 +47,41 @@ def _is_project_module(module) -> bool:
     return any(root == module_path or root in module_path.parents for root in allowed_module_roots)
 
 
-def _resolve_backend_module(file_candidates: list[Path], import_candidates: list[str], local_name: str):
-    """Resolve a backend module from local files first, then safe package imports."""
+def _resolve_backend_module(
+    file_candidates: list[Path],
+    import_candidates: list[str],
+    local_name: str,
+    required_symbols: list[str],
+):
+    """Resolve a backend module that defines at least one required callable symbol."""
     errors = []
 
     for module_path in file_candidates:
         if not module_path.exists():
             continue
         try:
-            return _load_module_from_file(local_name, module_path), errors
+            module = _load_module_from_file(local_name, module_path)
+            if _first_available_symbol(module, required_symbols):
+                return module, errors
+            errors.append(
+                f"file:{module_path} missing callable symbols from {required_symbols}"
+            )
         except Exception as e:
             errors.append(f"file:{module_path} -> {e}")
 
     for module_name in import_candidates:
         try:
             imported = importlib.import_module(module_name)
-            if _is_project_module(imported):
+            if not _is_project_module(imported):
+                imported_file = getattr(imported, "__file__", "<unknown>")
+                errors.append(f"import:{module_name} ignored (non-project module at {imported_file})")
+                continue
+            if _first_available_symbol(imported, required_symbols):
                 return imported, errors
             imported_file = getattr(imported, "__file__", "<unknown>")
-            errors.append(f"import:{module_name} ignored (non-project module at {imported_file})")
+            errors.append(
+                f"import:{module_name} at {imported_file} missing callable symbols from {required_symbols}"
+            )
         except Exception as e:
             errors.append(f"import:{module_name} -> {e}")
 
@@ -92,11 +108,13 @@ def _import_backend_functions():
         retrieval_files,
         ["src.retrieval", "retrieval"],
         "local_retrieval",
+        retrieve_candidates,
     )
     generate_module, generate_errors = _resolve_backend_module(
         generate_files,
         ["src.generate", "generate"],
         "local_generate",
+        generate_candidates,
     )
 
     retrieve_fn = _first_available_symbol(retrieval_module, retrieve_candidates) if retrieval_module else None
