@@ -15,6 +15,10 @@ for src_dir in candidate_src_dirs:
     if src_dir.is_dir() and str(src_dir) not in sys.path:
         sys.path.insert(0, str(src_dir))
 
+allowed_module_roots = [
+    p.resolve() for p in [current_dir, current_dir / "src", current_dir.parent, current_dir.parent / "src"] if p.exists()
+]
+
 def _load_module_from_file(module_name: str, module_path: Path):
     """Load a module object from an explicit local module path."""
     spec = importlib.util.spec_from_file_location(module_name, str(module_path))
@@ -34,6 +38,40 @@ def _first_available_symbol(module, candidates: list[str]):
     return None
 
 
+def _is_project_module(module) -> bool:
+    """Return True when an imported module originates from project paths."""
+    module_file = getattr(module, "__file__", None)
+    if not module_file:
+        return False
+    module_path = Path(module_file).resolve()
+    return any(root == module_path or root in module_path.parents for root in allowed_module_roots)
+
+
+def _resolve_backend_module(file_candidates: list[Path], import_candidates: list[str], local_name: str):
+    """Resolve a backend module from local files first, then safe package imports."""
+    errors = []
+
+    for module_path in file_candidates:
+        if not module_path.exists():
+            continue
+        try:
+            return _load_module_from_file(local_name, module_path), errors
+        except Exception as e:
+            errors.append(f"file:{module_path} -> {e}")
+
+    for module_name in import_candidates:
+        try:
+            imported = importlib.import_module(module_name)
+            if _is_project_module(imported):
+                return imported, errors
+            imported_file = getattr(imported, "__file__", "<unknown>")
+            errors.append(f"import:{module_name} ignored (non-project module at {imported_file})")
+        except Exception as e:
+            errors.append(f"import:{module_name} -> {e}")
+
+    return None, errors
+
+
 def _import_backend_functions():
     """Import backend functions using local files first, then package imports."""
     retrieve_candidates = ["retrieve_passages", "retrieve", "search_passages"]
@@ -50,35 +88,16 @@ def _import_backend_functions():
         current_dir.parent / "src" / "generate.py",
     ]
 
-    for retrieval_path, generate_path in zip(retrieval_files, generate_files):
-        if retrieval_path.exists() and generate_path.exists():
-            try:
-                retrieval_module = _load_module_from_file("local_retrieval", retrieval_path)
-                generate_module = _load_module_from_file("local_generate", generate_path)
-                retrieve_fn = _first_available_symbol(retrieval_module, retrieve_candidates)
-                generate_fn = _first_available_symbol(generate_module, generate_candidates)
-                if retrieve_fn and generate_fn:
-                    return retrieve_fn, generate_fn
-            except Exception:
-                # Try additional import routes below for cloud/local layout differences.
-                pass
-
-    retrieval_module = None
-    generate_module = None
-
-    for module_name in ["src.retrieval", "retrieval"]:
-        try:
-            retrieval_module = importlib.import_module(module_name)
-            break
-        except Exception:
-            continue
-
-    for module_name in ["src.generate", "generate"]:
-        try:
-            generate_module = importlib.import_module(module_name)
-            break
-        except Exception:
-            continue
+    retrieval_module, retrieval_errors = _resolve_backend_module(
+        retrieval_files,
+        ["src.retrieval", "retrieval"],
+        "local_retrieval",
+    )
+    generate_module, generate_errors = _resolve_backend_module(
+        generate_files,
+        ["src.generate", "generate"],
+        "local_generate",
+    )
 
     retrieve_fn = _first_available_symbol(retrieval_module, retrieve_candidates) if retrieval_module else None
     generate_fn = _first_available_symbol(generate_module, generate_candidates) if generate_module else None
@@ -95,7 +114,9 @@ def _import_backend_functions():
     raise ImportError(
         "Could not resolve backend functions. "
         f"retrieval candidates={retrieve_candidates}, found={retrieval_available}; "
-        f"generate candidates={generate_candidates}, found={generate_available}."
+        f"generate candidates={generate_candidates}, found={generate_available}. "
+        f"retrieval resolution errors={retrieval_errors}; "
+        f"generate resolution errors={generate_errors}."
     )
 
 
