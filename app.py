@@ -1,23 +1,32 @@
-import sys
 import importlib
 import importlib.util
+import sys
 from pathlib import Path
+
 import streamlit as st
 
 # Add candidate source roots to sys.path for local/cloud compatibility.
-current_dir = Path(__file__).resolve().parent
-candidate_src_dirs = [
-    current_dir,
-    current_dir / "src",
-    current_dir.parent / "src",
+CURRENT_DIR = Path(__file__).resolve().parent
+CANDIDATE_SRC_DIRS = [
+    CURRENT_DIR,
+    CURRENT_DIR / "src",
+    CURRENT_DIR.parent / "src",
 ]
-for src_dir in candidate_src_dirs:
+for src_dir in CANDIDATE_SRC_DIRS:
     if src_dir.is_dir() and str(src_dir) not in sys.path:
         sys.path.insert(0, str(src_dir))
 
-allowed_module_roots = [
-    p.resolve() for p in [current_dir, current_dir / "src", current_dir.parent, current_dir.parent / "src"] if p.exists()
+ALLOWED_MODULE_ROOTS = [
+    p.resolve()
+    for p in [
+        CURRENT_DIR,
+        CURRENT_DIR / "src",
+        CURRENT_DIR.parent,
+        CURRENT_DIR.parent / "src",
+    ]
+    if p.exists()
 ]
+
 
 def _load_module_from_file(module_name: str, module_path: Path):
     """Load a module object from an explicit local module path."""
@@ -30,7 +39,7 @@ def _load_module_from_file(module_name: str, module_path: Path):
 
 
 def _first_available_symbol(module, candidates: list[str]):
-    """Return the first callable symbol found in a module from the given candidate names."""
+    """Return the first callable symbol found in a module from candidate names."""
     for symbol_name in candidates:
         value = getattr(module, symbol_name, None)
         if callable(value):
@@ -44,7 +53,7 @@ def _is_project_module(module) -> bool:
     if not module_file:
         return False
     module_path = Path(module_file).resolve()
-    return any(root == module_path or root in module_path.parents for root in allowed_module_roots)
+    return any(root == module_path or root in module_path.parents for root in ALLOWED_MODULE_ROOTS)
 
 
 def _resolve_backend_module(
@@ -63,11 +72,9 @@ def _resolve_backend_module(
             module = _load_module_from_file(local_name, module_path)
             if _first_available_symbol(module, required_symbols):
                 return module, errors
-            errors.append(
-                f"file:{module_path} missing callable symbols from {required_symbols}"
-            )
-        except Exception as e:
-            errors.append(f"file:{module_path} -> {e}")
+            errors.append(f"file:{module_path} missing callable symbols from {required_symbols}")
+        except Exception as exc:
+            errors.append(f"file:{module_path} -> {exc}")
 
     for module_name in import_candidates:
         try:
@@ -82,8 +89,8 @@ def _resolve_backend_module(
             errors.append(
                 f"import:{module_name} at {imported_file} missing callable symbols from {required_symbols}"
             )
-        except Exception as e:
-            errors.append(f"import:{module_name} -> {e}")
+        except Exception as exc:
+            errors.append(f"import:{module_name} -> {exc}")
 
     return None, errors
 
@@ -94,14 +101,14 @@ def _import_backend_functions():
     generate_candidates = ["generate_answer", "generate", "answer_question"]
 
     retrieval_files = [
-        current_dir / "retrieval.py",
-        current_dir / "src" / "retrieval.py",
-        current_dir.parent / "src" / "retrieval.py",
+        CURRENT_DIR / "retrieval.py",
+        CURRENT_DIR / "src" / "retrieval.py",
+        CURRENT_DIR.parent / "src" / "retrieval.py",
     ]
     generate_files = [
-        current_dir / "generate.py",
-        current_dir / "src" / "generate.py",
-        current_dir.parent / "src" / "generate.py",
+        CURRENT_DIR / "generate.py",
+        CURRENT_DIR / "src" / "generate.py",
+        CURRENT_DIR.parent / "src" / "generate.py",
     ]
 
     retrieval_module, retrieval_errors = _resolve_backend_module(
@@ -124,10 +131,14 @@ def _import_backend_functions():
         return retrieve_fn, generate_fn
 
     retrieval_available = [
-        name for name in retrieve_candidates if retrieval_module and callable(getattr(retrieval_module, name, None))
+        name
+        for name in retrieve_candidates
+        if retrieval_module and callable(getattr(retrieval_module, name, None))
     ]
     generate_available = [
-        name for name in generate_candidates if generate_module and callable(getattr(generate_module, name, None))
+        name
+        for name in generate_candidates
+        if generate_module and callable(getattr(generate_module, name, None))
     ]
     raise ImportError(
         "Could not resolve backend functions. "
@@ -140,6 +151,7 @@ def _import_backend_functions():
 
 def _build_backend_fallback(reason: str):
     """Create fallback backend functions so the app can boot with a visible error."""
+
     def retrieve_fallback(query: str, top_k: int = 3):
         return [{"error": "backend_unavailable", "message": f"Backend import failed: {reason}"}]
 
@@ -151,196 +163,396 @@ def _build_backend_fallback(reason: str):
     return retrieve_fallback, generate_fallback
 
 
+def _process_prompt(prompt: str) -> None:
+    """Resolve answer for a factual prompt and save it to session state."""
+    passages = retrieve_passages(prompt)
+    response = generate_answer(prompt, passages)
+    st.session_state.last_query = prompt
+    st.session_state.last_response = response
+
+
 try:
     retrieve_passages, generate_answer = _import_backend_functions()
     backend_init_error = None
-except Exception as e:
-    backend_init_error = str(e)
+except Exception as exc:
+    backend_init_error = str(exc)
     retrieve_passages, generate_answer = _build_backend_fallback(backend_init_error)
 
-# Page Configuration
 st.set_page_config(page_title="Mutual Fund FAQ Assistant", page_icon="📈", layout="centered")
 
-# Custom CSS for Phase 5 UI matching screen.png
-st.markdown("""
+st.markdown(
+    """
     <style>
-    .title-text {
-        color: #00D09C;
-        font-size: 26px;
-        font-weight: bold;
-        margin-bottom: 20px;
-        margin-top: -20px;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    :root {
+        --bg: #131315;
+        --surface-0: #0e0e10;
+        --surface-1: #1b1b1d;
+        --surface-2: #201f21;
+        --surface-3: #2a2a2c;
+        --outline: #3c4a43;
+        --text: #e5e1e4;
+        --text-muted: #bacac1;
+        --primary: #44edb7;
+        --primary-strong: #00d09c;
+        --warning: #ffcb76;
     }
-    .welcome-title {
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
+
+    .stApp {
+        background: radial-gradient(circle at 20% -20%, #1f2a26 0%, transparent 45%),
+                    radial-gradient(circle at 90% -10%, #243235 0%, transparent 42%),
+                    var(--bg);
+        color: var(--text);
+    }
+
+    header[data-testid="stHeader"] { visibility: hidden; height: 0; }
+    .block-container {
+        max-width: 1100px;
+        padding-top: 0.8rem;
+        padding-bottom: 1rem;
+    }
+
+    .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        height: 62px;
+        padding: 0 8px;
+        border-bottom: 1px solid var(--outline);
+        background: rgba(19, 19, 21, 0.96);
+        backdrop-filter: blur(6px);
+    }
+
+    .brand {
+        font-size: 1.9rem;
+        line-height: 1;
+        font-weight: 700;
+        color: var(--primary);
+        letter-spacing: -0.01em;
+    }
+
+    .icon-row {
+        display: flex;
+        gap: 12px;
+        color: var(--text-muted);
+        font-size: 1.1rem;
+    }
+
+    .warn {
+        margin: 18px 0 30px;
+        border: 1px solid rgba(255, 203, 118, 0.35);
+        border-radius: 12px;
+        background: rgba(255, 203, 118, 0.09);
+        color: var(--warning);
+        padding: 12px 16px;
+        font-size: 0.82rem;
+        font-weight: 500;
+    }
+
+    .hero {
         text-align: center;
-        font-size: 36px;
-        font-weight: bold;
-        margin-top: 40px;
+        margin: 10px 0 16px;
     }
-    .welcome-subtitle {
+
+    .hero h1 {
+        font-size: 3rem;
+        margin: 0;
+        letter-spacing: -0.02em;
+    }
+
+    .hero p {
+        margin: 12px auto 0;
+        color: var(--text-muted);
+        max-width: 700px;
+        font-size: 1.2rem;
+        line-height: 1.45;
+    }
+
+    .chip-row-note {
         text-align: center;
-        color: #b0b0b5;
-        font-size: 16px;
-        margin-bottom: 40px;
-        line-height: 1.5;
+        color: transparent;
+        margin-bottom: 0.35rem;
     }
-    .terminal-header {
+
+    .stButton > button {
+        border-radius: 999px;
+        border: 1px solid var(--outline);
+        background: var(--surface-3);
+        color: var(--text);
+        min-height: 2.5rem;
+        font-size: 0.82rem;
+        transition: all 0.2s ease;
+    }
+
+    .stButton > button:hover {
+        border-color: var(--primary);
+        color: var(--primary);
+    }
+
+    .query-shell {
+        margin-top: 12px;
+    }
+
+    div[data-testid="stForm"] {
+        border: 1px solid var(--outline);
+        border-radius: 12px;
+        background: var(--surface-2);
+        padding: 12px 12px 2px;
+    }
+
+    div[data-testid="stTextInput"] input {
+        border: 0;
+        outline: none;
+        box-shadow: none;
+        background: transparent;
+        color: var(--text);
+        font-size: 0.98rem;
+    }
+
+    div[data-testid="stTextInput"] input::placeholder {
+        color: #8f9792;
+    }
+
+    .query-shell .stFormSubmitButton > button {
+        width: 48px;
+        min-width: 48px;
+        height: 42px;
+        border-radius: 10px;
+        background: var(--primary-strong);
+        color: #003828;
+        border: none;
+        font-size: 1.05rem;
+        margin-top: 1px;
+    }
+
+    .query-shell .stFormSubmitButton > button:hover {
+        background: #34e2b1;
+        color: #003828;
+    }
+
+    .terminal {
+        margin-top: 12px;
+        border: 1px solid var(--outline);
+        border-radius: 12px;
+        background: #141416;
+        min-height: 320px;
+        padding: 14px;
+        animation: rise 320ms ease-out;
+    }
+
+    .terminal-head {
         display: flex;
         align-items: center;
-        border-bottom: 1px solid #333;
+        gap: 8px;
+        border-bottom: 1px solid #31373a;
         padding-bottom: 10px;
-        margin-bottom: 10px;
-        color: #888;
-        font-size: 12px;
-        font-family: monospace;
-        letter-spacing: 1px;
-        text-transform: uppercase;
+        margin-bottom: 14px;
     }
-    .dots {
-        display: flex;
-        gap: 6px;
-        margin-right: 15px;
-    }
+
     .dot {
         width: 10px;
         height: 10px;
         border-radius: 50%;
     }
-    .dot.red { background-color: #ff5f56; }
-    .dot.yellow { background-color: #ffbd2e; }
-    .dot.green { background-color: #27c93f; }
-    .terminal-empty {
+
+    .dot.red { background: #bf6e77; }
+    .dot.amber { background: #b4965c; }
+    .dot.green { background: #2f9f8e; }
+
+    .terminal-title {
+        margin-left: 8px;
+        color: #a5ada9;
+        letter-spacing: 0.08em;
+        font-size: 0.72rem;
+        font-weight: 600;
+    }
+
+    .awaiting {
+        min-height: 230px;
         display: flex;
-        flex-direction: column;
         align-items: center;
         justify-content: center;
-        height: 200px;
-        color: #00D09C;
-        font-family: monospace;
-        font-size: 14px;
+        flex-direction: column;
+        color: var(--text-muted);
+        gap: 8px;
     }
-    .footer-container {
+
+    .awaiting-icon {
+        color: var(--primary);
+        font-size: 1.6rem;
+        border: 2px solid var(--primary);
+        border-radius: 5px;
+        line-height: 1;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .terminal-answer {
+        background: var(--surface-1);
+        border: 1px solid var(--outline);
+        border-left: 4px solid var(--primary);
+        border-radius: 10px;
+        padding: 12px;
+        color: var(--text);
+        line-height: 1.5;
+    }
+
+    .footer {
+        margin-top: 22px;
+        border-top: 1px solid #2f3336;
         text-align: center;
-        color: #666;
-        font-size: 11px;
-        padding-top: 20px;
-        border-top: 1px solid #222;
-        margin-top: 60px;
-        margin-bottom: 20px;
+        padding-top: 18px;
+        color: #9aa09d;
+        font-size: 0.72rem;
     }
+
+    .footer-links {
+        margin-top: 8px;
+        display: flex;
+        justify-content: center;
+        gap: 26px;
+    }
+
     .footer-links a {
-        color: #666;
+        color: #9aa09d;
         text-decoration: none;
-        margin: 0 10px;
     }
+
     .footer-links a:hover {
-        color: #00D09C;
+        color: var(--primary);
     }
-    div.stButton > button {
-        border-radius: 20px;
-        border: 1px solid #333;
-        background-color: #1a1a1d;
-        color: #e5e1e4;
-        font-size: 12px;
-        min-height: 60px;
-        width: 100%;
-        white-space: normal;
-        word-wrap: break-word;
+
+    @keyframes rise {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
     }
-    div.stButton > button:hover {
-        border-color: #00D09C;
-        color: #00D09C;
+
+    @media (max-width: 900px) {
+        .brand { font-size: 1.5rem; }
+        .hero h1 { font-size: 2.4rem; }
+        .hero p { font-size: 1.02rem; }
     }
     </style>
-""", unsafe_allow_html=True)
-
-# Top Header & Warning
-st.markdown('<div class="title-text">Mutual Fund FAQ Assistant</div>', unsafe_allow_html=True)
-st.warning("⚠️ **Facts-only. No investment advice.**")
-if backend_init_error:
-    st.error("Backend modules could not be loaded. Check deployment paths/dependencies. Details: " + backend_init_error)
-
-# Welcome Section
-st.markdown('<div class="welcome-title">Welcome!</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="welcome-subtitle">Ask me objective, verifiable questions about your mutual fund schemes. '
-    'I provide data<br>directly from regulatory sources.</div>', 
-    unsafe_allow_html=True
+    """,
+    unsafe_allow_html=True,
 )
 
-# Initialize chat history
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+st.markdown(
+    """
+    <div class="topbar">
+        <div class="brand">Mutual Fund FAQ Assistant</div>
+        <div class="icon-row"><span>?</span><span>i</span></div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-# Example Queries
-col1, col2, col3 = st.columns(3)
-preset_prompt = None
+st.markdown('<div class="warn">⚠ Facts-only. No investment advice.</div>', unsafe_allow_html=True)
+if backend_init_error:
+    st.error("Backend modules could not be loaded. Details: " + backend_init_error)
 
-with col1:
-    if st.button("What is the expense ratio and exit load of HDFC Mid Cap?"):
-        preset_prompt = "What is the expense ratio and exit load of HDFC Mid Cap?"
-with col2:
-    if st.button("Who is the fund manager for HDFC Defence Fund?"):
-        preset_prompt = "Who is the fund manager for HDFC Defence Fund?"
-with col3:
-    if st.button("What is the benchmark index for HDFC Small Cap?"):
-        preset_prompt = "What is the benchmark index for HDFC Small Cap?"
+st.markdown(
+    """
+    <section class="hero">
+        <h1>Welcome!</h1>
+        <p>
+            Ask me objective, verifiable questions about your mutual fund schemes.
+            I provide data directly from regulatory sources.
+        </p>
+    </section>
+    """,
+    unsafe_allow_html=True,
+)
 
-st.markdown("<br>", unsafe_allow_html=True)
+if "last_query" not in st.session_state:
+    st.session_state.last_query = ""
+if "last_response" not in st.session_state:
+    st.session_state.last_response = ""
 
-# Chat Input
-user_input = st.chat_input("Type your question (e.g., 'What is NAV?')")
-prompt = preset_prompt or user_input
+example_queries = [
+    "What is the expense ratio and exit load of HDFC Mid Cap?",
+    "Who is the fund manager for HDFC Defence Fund?",
+    "What is the benchmark index for HDFC Small Cap?",
+]
 
-# Terminal UI Container
-terminal_container = st.container(border=True)
+pill_cols = st.columns(3)
+for idx, col in enumerate(pill_cols):
+    with col:
+        if st.button(example_queries[idx], key=f"pill_{idx}", use_container_width=True):
+            _process_prompt(example_queries[idx])
 
-with terminal_container:
-    st.markdown('''
-        <div class="terminal-header">
-            <div class="dots">
-                <div class="dot red"></div>
-                <div class="dot yellow"></div>
-                <div class="dot green"></div>
-            </div>
-            TERMINAL OUTPUT
+st.markdown('<div class="chip-row-note">&nbsp;</div>', unsafe_allow_html=True)
+
+with st.container():
+    st.markdown('<div class="query-shell">', unsafe_allow_html=True)
+    with st.form("query_form", clear_on_submit=True):
+        input_col, send_col = st.columns([12, 1])
+        with input_col:
+            typed_prompt = st.text_input(
+                "Ask a facts-only mutual fund question",
+                value="",
+                placeholder="Type your question (e.g., 'What is NAV?')",
+                label_visibility="collapsed",
+            )
+        with send_col:
+            submitted = st.form_submit_button("➤")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+if submitted and typed_prompt.strip():
+    _process_prompt(typed_prompt.strip())
+
+st.markdown(
+    """
+    <div class="terminal">
+        <div class="terminal-head">
+            <span class="dot red"></span>
+            <span class="dot amber"></span>
+            <span class="dot green"></span>
+            <span class="terminal-title">TERMINAL OUTPUT</span>
         </div>
-    ''', unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-    if prompt:
-        st.session_state.messages.append({"role": "user", "content": prompt})
+if not st.session_state.last_response:
+    st.markdown(
+        """
+        <div class="awaiting">
+            <div class="awaiting-icon">&gt;_</div>
+            <div>Awaiting your query...</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown('<div class="terminal-answer">', unsafe_allow_html=True)
+    st.markdown(st.session_state.last_response)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    if not st.session_state.messages:
-        st.markdown('''
-            <div class="terminal-empty">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#00D09C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 10px;">
-                    <polyline points="4 17 10 11 4 5"></polyline>
-                    <line x1="12" y1="19" x2="20" y2="19"></line>
-                </svg>
-                Awaiting your query...|
-            </div>
-        ''', unsafe_allow_html=True)
-    else:
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+st.markdown("</div>", unsafe_allow_html=True)
 
-        if prompt:
-            with st.chat_message("assistant"):
-                with st.spinner("Searching official sources..."):
-                    passages = retrieve_passages(prompt)
-                    response = generate_answer(prompt, passages)
-                    st.markdown(response)
-            
-            st.session_state.messages.append({"role": "assistant", "content": response})
-
-# Footer
-st.markdown('''
-    <div class="footer-container">
-        <p style="margin-bottom: 8px;">Compliance & Disclaimer: Mutual Fund investments are subject to market risks. Read all scheme related documents carefully before investing. Sensitivity data is redacted via Privacy Guardrail.</p>
+st.markdown(
+    """
+    <div class="footer">
+        Compliance & Disclaimer: Mutual Fund investments are subject to market risks.
+        Read all scheme related documents carefully before investing. Sensitivity data
+        is redacted via Privacy Guardrail.
         <div class="footer-links">
             <a href="#">Terms of Service</a>
             <a href="#">Privacy Policy</a>
         </div>
     </div>
-''', unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
