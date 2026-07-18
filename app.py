@@ -99,7 +99,25 @@ def _import_backend_functions():
     )
 
 
-retrieve_passages, generate_answer = _import_backend_functions()
+def _build_backend_fallback(reason: str):
+    """Create fallback backend functions so the app can boot with a visible error."""
+    def retrieve_fallback(query: str, top_k: int = 3):
+        return [{"error": "backend_unavailable", "message": f"Backend import failed: {reason}"}]
+
+    def generate_fallback(query: str, passages):
+        if passages and isinstance(passages, list) and isinstance(passages[0], dict):
+            return passages[0].get("message", "Backend is unavailable.")
+        return f"Backend is unavailable: {reason}"
+
+    return retrieve_fallback, generate_fallback
+
+
+try:
+    retrieve_passages, generate_answer = _import_backend_functions()
+    backend_init_error = None
+except Exception as e:
+    backend_init_error = str(e)
+    retrieve_passages, generate_answer = _build_backend_fallback(backend_init_error)
 
 # Page Configuration
 st.set_page_config(page_title="Mutual Fund FAQ Assistant", page_icon="📈", layout="centered")
@@ -200,6 +218,8 @@ st.markdown("""
 # Top Header & Warning
 st.markdown('<div class="title-text">Mutual Fund FAQ Assistant</div>', unsafe_allow_html=True)
 st.warning("⚠️ **Facts-only. No investment advice.**")
+if backend_init_error:
+    st.error("Backend modules could not be loaded. Check deployment paths/dependencies. Details: " + backend_init_error)
 
 # Welcome Section
 st.markdown('<div class="welcome-title">Welcome!</div>', unsafe_allow_html=True)
