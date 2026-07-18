@@ -1,4 +1,5 @@
 import sys
+import importlib
 from pathlib import Path
 import streamlit as st
 
@@ -13,12 +14,23 @@ for src_dir in candidate_src_dirs:
     if src_dir.is_dir() and str(src_dir) not in sys.path:
         sys.path.insert(0, str(src_dir))
 
-try:
-    from src.retrieval import retrieve_passages
-    from src.generate import generate_answer
-except ModuleNotFoundError:
-    from retrieval import retrieve_passages
-    from generate import generate_answer
+def _import_backend_functions():
+    """Import backend functions without hiding real dependency errors."""
+    try:
+        retrieval_module = importlib.import_module("src.retrieval")
+        generate_module = importlib.import_module("src.generate")
+        return retrieval_module.retrieve_passages, generate_module.generate_answer
+    except ModuleNotFoundError as exc:
+        # Only fallback when the package path itself is missing.
+        if exc.name not in {"src", "src.retrieval", "src.generate"}:
+            raise
+
+    retrieval_module = importlib.import_module("retrieval")
+    generate_module = importlib.import_module("generate")
+    return retrieval_module.retrieve_passages, generate_module.generate_answer
+
+
+retrieve_passages, generate_answer = _import_backend_functions()
 
 # Page Configuration
 st.set_page_config(page_title="Mutual Fund FAQ Assistant", page_icon="📈", layout="centered")
@@ -137,8 +149,8 @@ col1, col2, col3 = st.columns(3)
 preset_prompt = None
 
 with col1:
-    if st.button("What is the exit load of HDFC gold ETF?"):
-        preset_prompt = "What is the exit load of HDFC gold ETF?"
+    if st.button("What is the expense ratio and exit load of HDFC Mid Cap?"):
+        preset_prompt = "What is the expense ratio and exit load of HDFC Mid Cap?"
 with col2:
     if st.button("Who is the fund manager for HDFC Defence Fund?"):
         preset_prompt = "Who is the fund manager for HDFC Defence Fund?"
